@@ -29,5 +29,15 @@ commute |>
   labs(title = "Distribution of Commute Times in Buffalo, NY",
        x = "Average Commute Time",
        y = "Number of Commuters")
+
+income |>
+  group_by(Year) |>
+  mutate(year_mean = mean(Household_Income)) |>
+  ggplot(mapping = aes(
+    x = Year,
+    y = year_mean
+  )) +
+  geom_point()
 ```
+From these graphs it can be seen that there is on average about a 20 minute commute time in the Buffalo area, with a small proportion of commuters with times greater than 25 or 30 minutes. As seen from the income data, average income in the Buffalo area has gone up over time. Now that we know about commute times and income over time, we can begin to do statistical analysis on the effects these have on each other using bootstrapping and other techniques. 
 
