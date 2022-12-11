@@ -1,43 +1,391 @@
 ---
 title: "Gov 50 Final Project"
 author: "Zachary Mecca"
-description: "My final project"
+description: "This is my Gov 50 final project. I am analyzing the statistical connections between obesity and fitness and the top 5 causes of excess death."
 output:
   distill::distill_article:
     self_contained: false
 ---
 
+## Introduction
 
+It is a commonly known fact that exercise is healthy and obesity is unhealthy, and can lead to health complications. It is also known that there are different levels of obesity and fitness across the country, and there is data from the CDC that breaks it down by state. I am interested in how these state-by-state variations may have statistical relationships to the rates of the top 5 causes of excess deaths in America. It is my hypothesis that higher rates of obesity will have a positive relationship with the proportions of excess death from respiratory and circulatory diseases, and higher rates of fitness will have a negative relationship with these causes of excess death. I think it is very interesting if there are relationships between trends of obesity and fitness and the rates of excess death are able to be found at such a high level, with only state-wide data being available for analysis.
 
-## Project thoughts
+## Data
 
-Do people making more money commute further to work? In this study, I will look at data from my hometown of Buffalo, NY in order to investigate this question. I hypothesize that higher incomes will cause people to choose to live further away from their jobs, and therefor, have longer commute times. I hypothesize this because it is very clear that there is high income disparities between the city of Buffalo (where most jobs are) and the surrounding suburbs. I want to test if these high-income earners are living in the suburbs then commuting into the city to work, and if there is a relationship between higher income and further commute, or if higher income people choose to live in the suburbs where they have high paying jobs, where they would have a shorter commute. The data I will be using comes from two different datasets that I will have to merge based on geography. The explanatory variable will be income, as this will give people greater ability to live in high-income areas with high property value. This is measured in $ per year. The outcome variable of interest is commute time. This is measured in minutes. The pattern that would support my hypothesis is that greater income leads to greater commute time. Something disproving my hypothesis would be no correlation between the two variables. In the case of a negative relationship, that would disprove my hypothesis by proving the opposite, that higher income people are able to commute shorter times by living closer to their high-income jobs.
+The data used in this study comes from the US Department of Health and Human Services, from the CDC and NCHS. The first data set (called deaths.csv) is a measure of potential excess deaths by state, broken into five categories: Alzheimer disease and dementia, circulatory disease, malignant neoplasms, respiratory diseases, and other select causes. This data includes numbers of deaths from each of these causes, and from that, totals per state per year can be calculated. This is a cross-sectional study.
 
+The second data set (called obesity.csv) is survey data tabulated by state for metrics of health, providing answers to questions such as "Percent of adults aged 18 years and older who have obesity" (we will use these responses to determine obesity proportions) and "Percent of adults who achieve at least 150 minutes a week of moderate-intensity aerobic physical activity or 75 minutes a week of vigorous-intensity aerobic activity (or an equivalent combination)" (we will use these responses to determine fitness proportions). This data provides insight at the state level as to proportions of obesity and fitness (the variables this study is interested in), as well as others.
 
-## Data Visualization
-```{r}
+1.  [NCHS - Potentially Excess Deaths from the Five Leading Causes of Death](https://catalog.data.gov/dataset/nchs-potentially-excess-deaths-from-the-five-leading-causes-of-death)
+2.  [Nutrition, Physical Activity, and Obesity - Behavioral Risk Factor Surveillance System](https://chronicdata.cdc.gov/Nutrition-Physical-Activity-and-Obesity/Nutrition-Physical-Activity-and-Obesity-Behavioral/hn4x-zwk7)
+
+These data sets can be combined based on state and year in order to get one data set that includes excess deaths from each of the 5 categories as well as obesity and fitness.
+
+```{r, include=FALSE}
 library(tidyverse)
-commute <- read_csv("data/commute.csv")
-income <- read_csv("data/income.csv")
 
-commute |>
-  group_by(Geography) |>
-  ggplot(mapping = aes(
-    x = Average_Commute_Time
-  )) +
-  geom_histogram() +
-  labs(title = "Distribution of Commute Times in Buffalo, NY",
-       x = "Average Commute Time",
-       y = "Number of Commuters")
+deaths <- read_csv("data/deaths.csv")
+obesity <- read_csv("data/obesity.csv")
 
-income |>
-  group_by(Year) |>
-  mutate(year_mean = mean(Household_Income)) |>
-  ggplot(mapping = aes(
-    x = Year,
-    y = year_mean
-  )) +
-  geom_point()
+
+deaths <- deaths |>
+  distinct() |>
+  select(Jurisdiction, Year, `State Abbreviation`, `Number of Deaths`, `Cause Group`) |>
+  rename(Cause = `Cause Group`) |>
+  group_by(Cause, Year, Jurisdiction) |>
+  mutate(tot_death_cause = sum(`Number of Deaths`)) |>
+  group_by(Jurisdiction, Year) |>
+  mutate(total_ex_death = sum(`Number of Deaths`)) |>
+  select(-c(`Number of Deaths`)) |>
+  distinct() |>
+  arrange(Jurisdiction, Year, Cause)
+
+obesity <- obesity |>
+  select(YearStart, LocationAbbr, LocationDesc, Topic, Question, Data_Value) |>
+  group_by(LocationDesc, YearStart)
+  
 ```
-From these graphs it can be seen that there is on average about a 20 minute commute time in the Buffalo area, with a small proportion of commuters with times greater than 25 or 30 minutes. As seen from the income data, average income in the Buffalo area has gone up over time. Now that we know about commute times and income over time, we can begin to do statistical analysis on the effects these have on each other using bootstrapping and other techniques. 
+
+```{r, include=FALSE}
+obesity <- obesity |>
+  rename(Year = YearStart, Abb = LocationAbbr, State = LocationDesc)
+
+deaths <- deaths |>
+  rename(Abb = `State Abbreviation`, State = Jurisdiction)
+```
+
+```{r, include=FALSE}
+combined <- inner_join(obesity, deaths)
+
+combined <- combined |>
+  drop_na()
+```
+
+```{r, include=FALSE}
+ex_death_hist <- deaths |>
+  select(-c(Cause, tot_death_cause)) |>
+  distinct() |>
+  group_by(Abb) |>
+  ggplot(mapping = aes(
+    x = total_ex_death
+  )) + geom_histogram(bins = 150) +
+  labs(title = "Amounts of Excess Death by State",
+       x = "Total Excess Deaths",
+       y = "Count")
+
+obese_hist <- obesity |>
+  filter(Question == "Percent of adults aged 18 years and older who have obesity") |>
+  group_by(Abb) |>
+  ggplot(mapping = aes(
+    x = Data_Value
+  )) + geom_histogram(bins = 50) +
+  labs(title = "Percentage of Obesity by State since 2015",
+       x = "Percent Obese",
+       y = "Count")
+
+fit_hist <- obesity |>
+  filter(Question == "Percent of adults who achieve at least 150 minutes a week of moderate-intensity aerobic physical activity or 75 minutes a week of vigorous-intensity aerobic activity (or an equivalent combination)") |>
+  group_by(Abb) |>
+  ggplot(mapping = aes(
+    x = Data_Value
+  )) + geom_histogram(bins = 50) +
+  labs(title = "Percentage of Fitness by State since 2015",
+       x = "Percent Fit",
+       y = "Count")
+
+```
+
+The distributions can be seen below for the amounts of excess deaths by state (which varies quite dramatically), as well as Obesity and Fitness. The differences in amounts of fitness and obesity can be evaluated to see if there is a statistical relationship between these and a different proportion of the five causes of excess death, that is, if there is more death by alzheimer's proportionally when obesity is higher, for example.
+
+```{r}
+ex_death_hist
+obese_hist
+fit_hist
+```
+
+It is seen from these graphs that the amount of excess deaths varies by state as well as the distribution of fitness and obesity. By joining the two data sets by year and state, it is possible to run analysis on the trends of the proportions of each cause of excess death with each state's obesity or fitness rates by year.
+
+```{r, include=FALSE}
+combined_obese <- combined |>
+  filter(Question == "Percent of adults aged 18 years and older who have obesity")
+
+combined_fit <- combined |>
+  filter(Question == "Percent of adults who achieve at least 150 minutes a week of moderate-intensity aerobic physical activity or 75 minutes a week of vigorous-intensity aerobic activity (or an equivalent combination)")
+
+```
+
+## Results
+
+Below are 10 scatterplots, one for each cause of death based on obesity or fitness rates. From this trends on the higher and lower proportions of death causes by fitness or obesity can be seen.
+
+```{r, include=FALSE}
+combined_obese <- combined_obese |>
+  mutate(prop_obese = Data_Value/100)
+
+combined_obese <- combined_obese |>
+  mutate(
+    alz = if_else(Cause == "Alzheimer disease and dementia", 1, 0),
+    circ = if_else(Cause == "Circulatory diseases", 1, 0),
+    canc = if_else(Cause == "Malignant neoplasms", 1, 0),
+    resp = if_else(Cause == "Respiratory diseases", 1, 0 ),
+    other = if_else(Cause == "Other select causes", 1, 0)
+  ) |>
+  mutate(prop_deaths = tot_death_cause/total_ex_death)
+
+
+ob_alz <- combined_obese |>
+  filter(alz == 1) |>
+  ggplot(mapping = aes(
+    x = prop_obese,
+    y = prop_deaths
+  )) + 
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Obesity on Alzheimer disease and Dementia",
+       x = "Proportion of Obesity",
+       y = "Proportion of Excess Deaths")
+
+ob_circ <- combined_obese |>
+  filter(circ == 1) |>
+  ggplot(mapping = aes(
+    x = prop_obese,
+    y = prop_deaths
+  )) + 
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Obesity on Ciculatory diseases",
+       x = "Proportion of Obesity",
+       y = "Proportion of Excess Deaths")
+
+ob_canc <- combined_obese |>
+  filter(canc == 1) |>
+  ggplot(mapping = aes(
+    x = prop_obese,
+    y = prop_deaths
+  )) + 
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Obesity on Malignant neoplasms",
+       x = "Proportion of Obesity",
+       y = "Proportion of Excess Deaths")
+  
+ob_resp <- combined_obese |>
+  filter(resp == 1) |>
+  ggplot(mapping = aes(
+    x = prop_obese,
+    y = prop_deaths
+  )) + 
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Obesity on Respiratory diseases",
+       x = "Proportion of Obesity",
+       y = "Proportion of Excess Deaths")
+
+ob_other <- combined_obese |>
+  filter(other == 1) |>
+  ggplot(mapping = aes(
+    x = prop_obese,
+    y = prop_deaths
+  )) + 
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Obesity on Other select causes",
+       x = "Proportion of Obesity",
+       y = "Proportion of Excess Deaths")
+```
+
+```{r}
+ob_alz
+ob_circ
+ob_canc
+ob_resp
+ob_other
+```
+
+### Models of fitness on excess deaths
+
+```{r, include=FALSE}
+combined_fit <- combined_fit |>
+  mutate(prop_fit = Data_Value/100)
+
+combined_fit <- combined_fit |>
+  mutate(
+    alz = if_else(Cause == "Alzheimer disease and dementia", 1, 0),
+    circ = if_else(Cause == "Circulatory diseases", 1, 0),
+    canc = if_else(Cause == "Malignant neoplasms", 1, 0),
+    resp = if_else(Cause == "Respiratory diseases", 1, 0 ),
+    other = if_else(Cause == "Other select causes", 1, 0)
+  ) |>
+  mutate(prop_deaths = tot_death_cause/total_ex_death)
+
+
+fit_alz <- combined_fit |>
+  filter(alz == 1) |>
+  ggplot(mapping = aes(
+    x = prop_fit,
+    y = prop_deaths
+  )) + 
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Fitness on Alzheimer disease and Dementia",
+       x = "Proportion of Fitness",
+       y = "Proportion of Excess Deaths")
+
+fit_circ <- combined_fit |>
+  filter(circ == 1) |>
+  ggplot(mapping = aes(
+    x = prop_fit,
+    y = prop_deaths
+  )) + 
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Fitness on Ciculatory diseases",
+       x = "Proportion of Fitness",
+       y = "Proportion of Excess Deaths")
+
+fit_canc <- combined_fit |>
+  filter(canc == 1) |>
+  ggplot(mapping = aes(
+    x = prop_fit,
+    y = prop_deaths
+  )) + 
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Fitness on Malignant neoplasms",
+       x = "Proportion of Fitness",
+       y = "Proportion of Excess Deaths")
+  
+fit_resp <- combined_fit |>
+  filter(resp == 1) |>
+  ggplot(mapping = aes(
+    x = prop_fit,
+    y = prop_deaths
+  )) + 
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Fitness on Respiratory diseases",
+       x = "Proportion of Fitness",
+       y = "Proportion of Excess Deaths")
+
+fit_other <- combined_fit |>
+  filter(other == 1) |>
+  ggplot(mapping = aes(
+    x = prop_fit,
+    y = prop_deaths
+  )) + 
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Fitness on Other select causes",
+       x = "Proportion of Fitness",
+       y = "Proportion of Excess Deaths")
+```
+
+```{r}
+fit_alz
+fit_circ
+fit_canc
+fit_resp
+fit_other
+```
+
+It can be seen that the largest impacts of fitness or obesity come with respiratory or circulatory diseases, with other causes also being largely affected. In the analysis from obesity, respiratory diseases, circulatory diseases, and other causes have positive sloping lines. This means that there are higher proportions of these kinds of excess death in states with higher levels of obesity. In the analyses from fitness, respiratory diseases, circulatory diseases, and other causes have negative sloping lines. This means that theren are lower proportions of these kinds of excess deaths in states with higher levels of fitness. The opposite is true for alzheimer's and dementia and cancer, as these are causes of death that may not directly related to fitness or obesity like circulatory or respiratory diseases.
+
+From these graphs it can see that fitness or obesity mostly affects circulatory diseases, respiratory diseases, and other causes. Linear regressions will be run to analyze the magnitude of these affects.
+
+Although fitness and obesity may seem like antonyms, based on the survey data they are not binary data, meaning obese is not the opposite of fit and fitness is not the opposite of obesity. From this distinction, by doing regressions the magnitude of effects on circulatory diseases, respiratory diseases, and other causes from obesity or fitness. 
+
+### Obesity regressions
+
+
+Obesity on Circulatory diseases:
+
+```{r, include=FALSE}
+library(moderndive)
+obese_circ <- combined_obese |>
+  filter(circ == 1)
+lm_obese_circ <- lm(prop_deaths ~ prop_obese, data = obese_circ)
+```
+
+```{r}
+get_regression_table(lm_obese_circ)
+```
+
+Obesity on Respiratory diseases:
+
+```{r, include=FALSE}
+obese_resp <- combined_obese |>
+  filter(resp == 1)
+lm_obese_resp <- lm(prop_deaths ~ prop_obese, data = obese_resp)
+```
+
+```{r}
+get_regression_table(lm_obese_resp)
+```
+
+Obesity on other select causes:
+
+```{r, include=FALSE}
+obese_other <- combined_obese |>
+  filter(other == 1)
+lm_obese_other <- lm(prop_deaths ~ prop_obese, data = obese_other)
+```
+
+```{r}
+get_regression_table(lm_obese_other)
+```
+
+From these regressions it is seen that an increase in the proportion of of obesity will increase the proportions of excess death by circulatory diseases by 2.8%, respiratory diseases by 5.2%, and other causes of death by 5.9%. These numbers are statistically significant, as all three have p-values of 0 (most likely greater than 0, but very small). This means that in in a state with 100% obesity, there would be 2.8% higher circulatory disease death, 5.2% higher respiratory disease death, and 5.9% higher death by other causes than a state with 0% obesity.
+
+
+### Fitness regressions
+
+
+Fitness on Circulatory diseases:
+
+```{r, include=FALSE}
+fit_circ <- combined_fit |>
+  filter(circ == 1)
+lm_fit_circ <- lm(prop_deaths ~ prop_fit, data = fit_circ)
+```
+
+```{r}
+get_regression_table(lm_fit_circ)
+```
+
+Fitness on Respiratory diseases:
+
+```{r, include=FALSE}
+fit_resp <- combined_fit |>
+  filter(resp == 1)
+lm_fit_resp <- lm(prop_deaths ~ prop_fit, data = fit_resp)
+```
+
+```{r}
+get_regression_table(lm_fit_resp)
+```
+
+Fitness on other select causes:
+
+```{r, include=FALSE}
+fit_other <- combined_fit |>
+  filter(other == 1)
+lm_fit_other <- lm(prop_deaths ~ prop_fit, data = fit_other)
+```
+
+```{r}
+get_regression_table(lm_fit_other)
+```
+
+
+From these regressions it is seen that an increase in the proportion of of fitness will decrease the proportions of excess death by circulatory diseases by 6.6%, respiratory diseases by 6.3%, and other causes of death by 17.2%. These numbers are statistically significant, as all three have p-values of 0 (most likely greater than 0, but very small). This means that in in a state with 100% fitness, there would be 6.6% lower circulatory disease death, 6.3% lower respiratory disease death, and 17.2% lower death by other causes than a state with 0% fitness.
+
+
+These results show that in magnitude of proportions of the affects of obesity or fitness on excess deaths from circulatory diseases, respiratory diseases, and other causes of death are greater for fitness than obesity. 
+
+
+## Conclusion
+
+The results of this study support the hypothesis, that there will be a higher proportion of unnecessary deaths coming from circulatory and respiratory diseases in states with higher obesity. Along this same vein, it was found that there is, actually to a greater degree, a decline in the proportion of unnecessary death from these causes in states with higher proportions of fit individuals. Another surprising result was the dramatic amount that proportion of other causes of excess deaths were reduced with increased fitness, a whopping 17.2%. This was a much greater affect than was seen in any other cause of death. This study does have limitations, however, as the data was only available at the state level, so it is extremely difficult to justify the health effects of obesity and fitness on excess death at the individual level. It is quite possible that there are other confounding factors not recorded in the survey data that may have a much stronger explanatory effect than obesity or fitness. Regardless, it is well known that fitness has positive health benefits and obesity has negative health effects, so it is understandable and interesting that these trends can be seen from a very bird's-eye view of state-wide data. If individual survey data were available (instead of aggregated data by state), it would be very interesting to see how that affects the saliency of the trends discovered in this study.
+
 
